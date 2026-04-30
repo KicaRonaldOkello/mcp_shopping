@@ -116,7 +116,7 @@ Resources:
 
 Outputs:
   BucketName:
-    Description: S3 bucket to use in the GitHub repository variable S3_FRONTEND_BUCKET.
+    Description: S3 bucket to use in the GitHub repository variable FRONTEND_BUCKET_S3.
     Value: !Ref FrontendBucket
 
   DistributionId:

@@ -54,8 +54,8 @@ jobs:
           esac
 
           if [[ "${FRONTEND_DEPLOY_TARGET}" == "s3" || "${FRONTEND_DEPLOY_TARGET}" == "both" ]]; then
-            if [[ -z "${{ vars.S3_FRONTEND_BUCKET }}" ]]; then
-              echo "FRONTEND_DEPLOY_TARGET=${FRONTEND_DEPLOY_TARGET} requires repository variable S3_FRONTEND_BUCKET." >&2
+            if [[ -z "${{ vars.FRONTEND_BUCKET_S3 }}" ]]; then
+              echo "FRONTEND_DEPLOY_TARGET=${FRONTEND_DEPLOY_TARGET} requires repository variable FRONTEND_BUCKET_S3." >&2
               exit 1
             fi
             if [[ -z "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" ]]; then
@@ -94,7 +94,7 @@ jobs:
           cd frontend
           npm ci
           npm run build -- --configuration=production
-          aws s3 sync dist/frontend/browser/ "s3://${{ vars.S3_FRONTEND_BUCKET }}/" --delete
+          aws s3 sync dist/frontend/browser/ "s3://${{ vars.FRONTEND_BUCKET_S3 }}/" --delete
 
       - name: Invalidate CloudFront
         if: ${{ env.FRONTEND_DEPLOY_TARGET == 's3' || env.FRONTEND_DEPLOY_TARGET == 'both' }}
@@ -182,7 +182,7 @@ jobs:
             if [ "${FRONTEND_DEPLOY_TARGET}" = "s3" ] || [ "${FRONTEND_DEPLOY_TARGET}" = "both" ]; then
               echo ""
               echo "Frontend deploy target: **${FRONTEND_DEPLOY_TARGET}**"
-              echo "S3 bucket: \`${{ vars.S3_FRONTEND_BUCKET }}\`"
+              echo "S3 bucket: \`${{ vars.FRONTEND_BUCKET_S3 }}\`"
               echo "CloudFront distribution id: \`${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}\`"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
