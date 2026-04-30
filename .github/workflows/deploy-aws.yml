@@ -25,10 +25,20 @@ jobs:
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
+          audience: sts.amazonaws.com
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Ensure ECR repository exists
+        run: |
+          set -euo pipefail
+          if ! aws ecr describe-repositories --repository-names "${{ env.ECR_REPOSITORY }}" >/dev/null 2>&1; then
+            aws ecr create-repository \
+              --repository-name "${{ env.ECR_REPOSITORY }}" \
+              --image-scanning-configuration scanOnPush=true
+          fi
 
       - name: Build and push image
         env:
@@ -45,6 +55,8 @@ jobs:
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          OPENROUTER_API_KEY_SECRET_ARN: ${{ secrets.OPENROUTER_API_KEY_SECRET_ARN }}
+          MCP_SERVER_URL: ${{ vars.MCP_SERVER_URL }}
         run: |
           set -euo pipefail
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
@@ -52,8 +64,22 @@ jobs:
             -e "s/ACCOUNT_PLACEHOLDER/${ACCOUNT_ID}/g" \
             -e "s/REGION_PLACEHOLDER/${AWS_REGION}/g" \
             deploy/ecs-task-definition.json > /tmp/ecs-task-sed.json
-          jq --arg IMAGE "$IMAGE_URI" '.containerDefinitions[0].image = $IMAGE' /tmp/ecs-task-sed.json > /tmp/ecs-task.json
-          NEW_ARN="$(aws ecs register-task-definition --cli-input-json file:///tmp/ecs-task.json --query taskDefinition.taskDefinitionArn --output text)"
+          cp /tmp/ecs-task-sed.json /tmp/ecs-work.json
+          jq --arg IMAGE "$IMAGE_URI" '.containerDefinitions[0].image = $IMAGE' /tmp/ecs-work.json > /tmp/ecs-task.json
+          mv /tmp/ecs-task.json /tmp/ecs-work.json
+          if [ -n "${OPENROUTER_API_KEY_SECRET_ARN:-}" ]; then
+            jq --arg SECRET_ARN "$OPENROUTER_API_KEY_SECRET_ARN" \
+              '.containerDefinitions[0].secrets = [{"name":"OPENROUTER_API_KEY","valueFrom":$SECRET_ARN}]' \
+              /tmp/ecs-work.json > /tmp/ecs-task.json
+            mv /tmp/ecs-task.json /tmp/ecs-work.json
+          fi
+          if [ -n "${MCP_SERVER_URL:-}" ]; then
+            jq --arg URL "$MCP_SERVER_URL" \
+              '.containerDefinitions[0].environment = ((.containerDefinitions[0].environment // []) + [{"name":"MCP_SERVER_URL","value":$URL}])' \
+              /tmp/ecs-work.json > /tmp/ecs-task.json
+            mv /tmp/ecs-task.json /tmp/ecs-work.json
+          fi
+          NEW_ARN="$(aws ecs register-task-definition --cli-input-json file:///tmp/ecs-work.json --query taskDefinition.taskDefinitionArn --output text)"
           aws ecs update-service \
             --cluster "${{ vars.ECS_CLUSTER }}" \
             --service "${{ vars.ECS_SERVICE }}" \
