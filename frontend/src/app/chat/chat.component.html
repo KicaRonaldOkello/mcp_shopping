@@ -1,0 +1,35 @@
+<div class="chat-shell">
+  <header class="chat-header">
+    <h1>Meridian support</h1>
+    <p class="sub">Chat streams from the FastAPI <code>/api/chat/stream</code> endpoint.</p>
+  </header>
+
+  <div class="thread" role="log" aria-live="polite">
+    @for (m of messages(); track $index) {
+      <div class="bubble" [class.user]="m.role === 'user'" [class.assistant]="m.role === 'assistant'">
+        <span class="role">{{ m.role === 'user' ? 'You' : 'Assistant' }}</span>
+        <pre class="content">{{ m.content | formatMeridianReply }}</pre>
+      </div>
+    }
+    @if (streaming()) {
+      <div class="bubble assistant streaming">
+        <span class="role">Assistant</span>
+        <pre class="content">{{ streaming() | formatMeridianReply }}<span class="cursor">▌</span></pre>
+      </div>
+    }
+    @if (busy() && lastNode()) {
+      <div class="step-hint">Running: {{ lastNode() }}…</div>
+    }
+  </div>
+
+  <form class="composer" (ngSubmit)="send()">
+    <textarea
+      rows="3"
+      name="draft"
+      [(ngModel)]="draft"
+      placeholder="Try: list products…"
+      [disabled]="busy()"
+    ></textarea>
+    <button type="submit" [disabled]="busy() || !draft.trim()">Send</button>
+  </form>
+</div>

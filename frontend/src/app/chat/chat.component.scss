@@ -1,0 +1,144 @@
+.chat-shell {
+  max-width: 52rem;
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem 1rem 2rem;
+  font-family: system-ui, sans-serif;
+  background: #0f1419;
+  color: #e6edf3;
+}
+
+.chat-header {
+  margin-bottom: 1rem;
+
+  h1 {
+    font-size: 1.35rem;
+    font-weight: 600;
+    margin: 0 0 0.25rem;
+  }
+
+  .sub {
+    margin: 0;
+    font-size: 0.875rem;
+    color: #8b949e;
+
+    code {
+      font-size: 0.8rem;
+    }
+  }
+}
+
+.thread {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.bubble {
+  border-radius: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  max-width: 95%;
+
+  .role {
+    display: block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #8b949e;
+    margin-bottom: 0.35rem;
+  }
+
+  .content {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  &.user {
+    align-self: flex-end;
+    background: #1f6feb;
+    color: #fff;
+
+    .role {
+      color: rgba(255, 255, 255, 0.85);
+    }
+  }
+
+  &.assistant {
+    align-self: flex-start;
+    background: #21262d;
+    border: 1px solid #30363d;
+  }
+
+  &.streaming .cursor {
+    animation: blink 1s step-end infinite;
+  }
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.step-hint {
+  font-size: 0.75rem;
+  color: #8b949e;
+}
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-top: 1px solid #30363d;
+  padding-top: 1rem;
+
+  textarea {
+    width: 100%;
+    box-sizing: border-box;
+    border-radius: 0.5rem;
+    border: 1px solid #30363d;
+    background: #161b22;
+    color: #e6edf3;
+    padding: 0.65rem 0.75rem;
+    resize: vertical;
+    min-height: 4.5rem;
+
+    &:focus {
+      outline: 2px solid #388bfd;
+      outline-offset: 1px;
+    }
+
+    &:disabled {
+      opacity: 0.6;
+    }
+  }
+
+  button {
+    align-self: flex-end;
+    border: none;
+    border-radius: 0.5rem;
+    padding: 0.5rem 1.25rem;
+    font-weight: 600;
+    background: #238636;
+    color: #fff;
+    cursor: pointer;
+
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    &:not(:disabled):hover {
+      background: #2ea043;
+    }
+  }
+}
