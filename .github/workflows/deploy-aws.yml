@@ -12,7 +12,7 @@ permissions:
 env:
   AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
   ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || 'mcp-shopping' }}
-  FRONTEND_DEPLOY_TARGET: ${{ vars.FRONTEND_DEPLOY_TARGET || 'ecs' }}
+  FRONTEND_DEPLOY_TARGET: ${{ vars.FRONTEND_DEPLOY_TARGET || 's3' }}
 
 jobs:
   deploy:
@@ -41,16 +41,6 @@ jobs:
               --image-scanning-configuration scanOnPush=true
           fi
 
-      - name: Build and push image
-        env:
-          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          docker build -t "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" -t "$REGISTRY/$ECR_REPOSITORY:latest" .
-          docker push "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          docker push "$REGISTRY/$ECR_REPOSITORY:latest"
-
       - name: Validate frontend deploy configuration
         run: |
           set -euo pipefail
@@ -68,7 +58,26 @@ jobs:
               echo "FRONTEND_DEPLOY_TARGET=${FRONTEND_DEPLOY_TARGET} requires repository variable S3_FRONTEND_BUCKET." >&2
               exit 1
             fi
+            if [[ -z "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" ]]; then
+              echo "FRONTEND_DEPLOY_TARGET=${FRONTEND_DEPLOY_TARGET} requires CLOUDFRONT_DISTRIBUTION_ID (invalidate after sync)." >&2
+              exit 1
+            fi
           fi
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "${FRONTEND_DEPLOY_TARGET}" = "s3" ]; then
+            TARGET="runtime-api"
+          else
+            TARGET="runtime-full"
+          fi
+          docker build --target "$TARGET" -t "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" -t "$REGISTRY/$ECR_REPOSITORY:latest" .
+          docker push "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker push "$REGISTRY/$ECR_REPOSITORY:latest"
 
       - name: Set up Node.js
         if: ${{ env.FRONTEND_DEPLOY_TARGET == 's3' || env.FRONTEND_DEPLOY_TARGET == 'both' }}
@@ -88,7 +97,7 @@ jobs:
           aws s3 sync dist/frontend/browser/ "s3://${{ vars.S3_FRONTEND_BUCKET }}/" --delete
 
       - name: Invalidate CloudFront
-        if: ${{ (env.FRONTEND_DEPLOY_TARGET == 's3' || env.FRONTEND_DEPLOY_TARGET == 'both') && vars.CLOUDFRONT_DISTRIBUTION_ID != '' }}
+        if: ${{ env.FRONTEND_DEPLOY_TARGET == 's3' || env.FRONTEND_DEPLOY_TARGET == 'both' }}
         run: |
           aws cloudfront create-invalidation \
             --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
@@ -146,34 +155,34 @@ jobs:
           {
             echo "## Deploy"
             echo ""
-            echo "The running container serves **both** the Angular UI (paths like \`/\`) and the API (\`/api/...\`) on port **8000**."
+            if [ "${FRONTEND_DEPLOY_TARGET}" = "ecs" ]; then
+              echo "Single container: Angular + API on port **8000** (image target \`runtime-full\`)."
+            elif [ "${FRONTEND_DEPLOY_TARGET}" = "s3" ]; then
+              echo "**Split deploy:** Angular build → **S3** → **CloudFront**; API-only image (**\`runtime-api\`**) on **ECS** behind the ALB. Browsers use the same origin: CloudFront serves \`/\`, forwards \`/api/*\` to the ALB (see \`deploy/cloudformation-frontend-cloudfront.yaml\`)."
+            else
+              echo "**Both:** SPA synced to S3/CloudFront and container built with \`runtime-full\` (redundant unless you need both origins)."
+            fi
             echo ""
             if [ -n "${{ vars.PUBLIC_APP_URL }}" ]; then
               echo "**Open the app in a browser:** [${{ vars.PUBLIC_APP_URL }}](${{ vars.PUBLIC_APP_URL }})"
             else
               if [ "${FRONTEND_DEPLOY_TARGET}" = "s3" ] || [ "${FRONTEND_DEPLOY_TARGET}" = "both" ]; then
-                echo "Set repository variable \`PUBLIC_APP_URL\` to your CloudFront URL so this summary can print the public frontend link."
-                echo "If you only have the CloudFront distribution ID, look up the distribution domain and save it as \`PUBLIC_APP_URL\`."
+                echo "Set \`PUBLIC_APP_URL\` to \`https://<DistributionDomainName>/\` (stack output \`DistributionDomainName\` from \`cloudformation-frontend-cloudfront.yaml\`)."
               else
                 echo "Point your browser at your **internet-facing ALB URL** (HTTP port 80 → target group → tasks on 8000)."
                 echo "Use the CloudFormation stack output \`BrowserUrl\` from \`deploy/cloudformation-public-alb.yaml\`, or your ALB DNS name."
                 echo ""
-                echo "Optional: add repository variable \`PUBLIC_APP_URL\` (e.g. \`http://my-alb.us-east-1.elb.amazonaws.com\`) for a direct link in this summary next time."
+                echo "Optional: add repository variable \`PUBLIC_APP_URL\` for a direct link in this summary next time."
               fi
             fi
             if [ -n "${{ vars.ECS_TARGET_GROUP_ARN }}" ]; then
               echo ""
-              echo "ECS is updated with load balancer target group **${{ vars.ECS_TARGET_GROUP_ARN }}** (HTTP 80 → tasks on 8000)."
+              echo "ECS is updated with load balancer target group **${{ vars.ECS_TARGET_GROUP_ARN }}** (HTTP 80 → API on 8000)."
             fi
             if [ "${FRONTEND_DEPLOY_TARGET}" = "s3" ] || [ "${FRONTEND_DEPLOY_TARGET}" = "both" ]; then
               echo ""
               echo "Frontend deploy target: **${FRONTEND_DEPLOY_TARGET}**"
               echo "S3 bucket: \`${{ vars.S3_FRONTEND_BUCKET }}\`"
-              if [ -n "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" ]; then
-                echo "CloudFront distribution id: \`${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}\`"
-              else
-                echo "CloudFront distribution id: not set"
-              fi
-              echo "CloudFront must route \`/api/*\` to the backend origin; static-only S3 hosting is not enough for this app."
+              echo "CloudFront distribution id: \`${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}\`"
             fi
           } >> "$GITHUB_STEP_SUMMARY"

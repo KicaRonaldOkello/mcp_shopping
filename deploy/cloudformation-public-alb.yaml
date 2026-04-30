@@ -21,7 +21,11 @@ Parameters:
       ingress rule allowing TCP 8000 from this ALB so the target group health checks and traffic work.
 
 Conditions:
-  HasEcsTaskSg: !Not [!Equals [!Ref EcsTaskSecurityGroupId, ""]]
+  HasEcsTaskSg:
+    Fn::Not:
+      - Fn::Equals:
+          - Ref: EcsTaskSecurityGroupId
+          - ""
 
 Resources:
   AlbSecurityGroup:

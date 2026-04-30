@@ -13,8 +13,8 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build -- --configuration=production
 
-# --- Runtime ---
-FROM python:3.12-slim
+# --- Runtime: API only (ECS when Angular is on S3 + CloudFront) ---
+FROM python:3.12-slim AS runtime-api
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/*
@@ -27,6 +27,9 @@ COPY pyproject.toml uv.lock ./
 COPY main.py config.py logging_config.py middleware.py ./
 COPY agents ./agents
 COPY routers ./routers
-COPY --from=frontend-build /frontend/dist/frontend/browser ./static/browser
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# --- Runtime: API + built SPA in image (local / single-container deploys) ---
+FROM runtime-api AS runtime-full
+COPY --from=frontend-build /frontend/dist/frontend/browser ./static/browser
