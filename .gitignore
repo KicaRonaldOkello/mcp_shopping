@@ -13,3 +13,6 @@ wheels/
 .env
 .env.*
 !.env.example
+
+# Built SPA copied into the image (optional local copy)
+static/browser/
