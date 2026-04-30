@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  One-time stack: internet-facing HTTP ALB on port 80 forwarding to a target group on port 8000
+  (your FastAPI + Angular container). After deploy: attach the target group to your ECS service
+  (container name "app", port 8000) and add an inbound rule on the ECS task security group —
+  TCP 8000 from the ALB security group (see output AlbSecurityGroupId).
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where the ALB and target group live (same VPC as ECS tasks).
+
+  PublicSubnetIds:
+    Type: CommaDelimitedList
+    Description: At least two public subnets in different AZs (for the internet-facing ALB).
+
+Resources:
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: HTTP from internet to ALB (mcp-shopping public ALB)
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Public HTTP
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      VpcId: !Ref VpcId
+      Port: 8000
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckPath: /api/health
+      HealthCheckProtocol: HTTP
+      Matcher:
+        HttpCode: "200"
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      Type: application
+      Subnets: !Ref PublicSubnetIds
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  BrowserUrl:
+    Description: Open this in a browser (HTTP) after ECS registers healthy targets.
+    Value: !Sub "http://${ApplicationLoadBalancer.DNSName}/"
+
+  LoadBalancerDns:
+    Description: ALB DNS hostname
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+
+  TargetGroupArn:
+    Description: Attach this target group to your ECS service (load balancer integration).
+    Value: !Ref TargetGroup
+
+  AlbSecurityGroupId:
+    Description: On your ECS task security group, allow inbound TCP 8000 from this security group.
+    Value: !Ref AlbSecurityGroup

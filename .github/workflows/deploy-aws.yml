@@ -1,3 +1,12 @@
+# ECS deploy: the Docker image includes the Angular production build under /static/browser;
+# FastAPI serves the SPA at / and the API under /api on port 8000. Your ALB listener should
+# forward HTTP to that port — open the load balancer URL in a browser to use the UI.
+# Optional: set repo variable PUBLIC_APP_URL (e.g. http://your-alb-dns.region.elb.amazonaws.com)
+# so the summary below prints a direct link.
+#
+# Optional S3 + CloudFront steps: only use if CloudFront routes /api/* to the same backend;
+# the Angular app calls relative /api paths (same-origin). Static-only S3 hosting breaks the API.
+
 name: Deploy to AWS
 
 on:
@@ -50,6 +59,30 @@ jobs:
           docker push "$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           docker push "$REGISTRY/$ECR_REPOSITORY:latest"
 
+      - name: Set up Node.js
+        if: ${{ vars.S3_FRONTEND_BUCKET != '' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build Angular and sync to S3
+        if: ${{ vars.S3_FRONTEND_BUCKET != '' }}
+        run: |
+          set -euo pipefail
+          cd frontend
+          npm ci
+          npm run build -- --configuration=production
+          aws s3 sync dist/frontend/browser/ "s3://${{ vars.S3_FRONTEND_BUCKET }}/" --delete
+
+      - name: Invalidate CloudFront
+        if: ${{ vars.S3_FRONTEND_BUCKET != '' && vars.CLOUDFRONT_DISTRIBUTION_ID != '' }}
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
+            --paths "/*"
+
       - name: Register task definition and update ECS service
         if: ${{ vars.ECS_CLUSTER != '' && vars.ECS_SERVICE != '' }}
         env:
@@ -85,3 +118,25 @@ jobs:
             --service "${{ vars.ECS_SERVICE }}" \
             --task-definition "$NEW_ARN" \
             --force-new-deployment
+
+      - name: Deployment summary (frontend URL)
+        if: success()
+        run: |
+          {
+            echo "## Deploy"
+            echo ""
+            echo "The running container serves **both** the Angular UI (paths like \`/\`) and the API (\`/api/...\`) on port **8000**."
+            echo ""
+            if [ -n "${{ vars.PUBLIC_APP_URL }}" ]; then
+              echo "**Open the app in a browser:** [${{ vars.PUBLIC_APP_URL }}](${{ vars.PUBLIC_APP_URL }})"
+            else
+              echo "Point your browser at your **internet-facing ALB URL** (HTTP port 80 → target group → tasks on 8000)."
+              echo "Use the CloudFormation stack output \`BrowserUrl\` from \`deploy/cloudformation-public-alb.yaml\`, or your ALB DNS name."
+              echo ""
+              echo "Optional: add repository variable \`PUBLIC_APP_URL\` (e.g. \`http://my-alb.us-east-1.elb.amazonaws.com\`) for a direct link in this summary next time."
+            fi
+            if [ -n "${{ vars.S3_FRONTEND_BUCKET }}" ]; then
+              echo ""
+              echo "S3/CloudFront: ensure CloudFront sends \`/api/*\` to the API origin; otherwise use the ALB URL above for same-origin API + UI."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
