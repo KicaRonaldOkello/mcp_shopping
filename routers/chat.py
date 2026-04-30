@@ -55,11 +55,11 @@ def _ai_texts_from_update(update: dict[str, Any]) -> list[str]:
 
 
 async def _stream_run(message: str, thread_id: str) -> AsyncIterator[str]:
-    graph = get_compiled_graph()
-    config = {"configurable": {"thread_id": thread_id}}
     yield _sse("meta", {"thread_id": thread_id})
 
     try:
+        graph = get_compiled_graph()
+        config = {"configurable": {"thread_id": thread_id}}
         async for chunk in graph.astream(
             {"messages": [HumanMessage(content=message)]},
             config,

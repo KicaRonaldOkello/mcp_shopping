@@ -59,8 +59,8 @@ jobs:
               exit 1
             fi
             if [[ -z "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" ]]; then
-              echo "FRONTEND_DEPLOY_TARGET=${FRONTEND_DEPLOY_TARGET} requires CLOUDFRONT_DISTRIBUTION_ID (invalidate after sync)." >&2
-              exit 1
+              echo "Note: CLOUDFRONT_DISTRIBUTION_ID is unset — S3 sync will run but CloudFront cache invalidation will be skipped." >&2
+              echo "After you deploy deploy/cloudformation-frontend-cloudfront.yaml, set Actions variable CLOUDFRONT_DISTRIBUTION_ID from stack output CloudFrontDistributionId." >&2
             fi
           fi
 
@@ -97,7 +97,7 @@ jobs:
           aws s3 sync dist/frontend/browser/ "s3://${{ vars.FRONTEND_BUCKET_S3 }}/" --delete
 
       - name: Invalidate CloudFront
-        if: ${{ env.FRONTEND_DEPLOY_TARGET == 's3' || env.FRONTEND_DEPLOY_TARGET == 'both' }}
+        if: ${{ (env.FRONTEND_DEPLOY_TARGET == 's3' || env.FRONTEND_DEPLOY_TARGET == 'both') && vars.CLOUDFRONT_DISTRIBUTION_ID != '' }}
         run: |
           aws cloudfront create-invalidation \
             --distribution-id "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" \
@@ -183,6 +183,10 @@ jobs:
               echo ""
               echo "Frontend deploy target: **${FRONTEND_DEPLOY_TARGET}**"
               echo "S3 bucket: \`${{ vars.FRONTEND_BUCKET_S3 }}\`"
-              echo "CloudFront distribution id: \`${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}\`"
+              if [ -n "${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}" ]; then
+                echo "CloudFront distribution id: \`${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}\` (invalidated after sync)"
+              else
+                echo "CloudFront: not configured — set repository variable \`CLOUDFRONT_DISTRIBUTION_ID\` to enable post-sync invalidation."
+              fi
             fi
           } >> "$GITHUB_STEP_SUMMARY"

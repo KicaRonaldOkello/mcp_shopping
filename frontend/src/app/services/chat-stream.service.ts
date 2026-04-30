@@ -58,6 +58,33 @@ function drainSseBuffer(buffer: string): { events: ChatSseEvent[]; buffer: strin
   return { events, buffer };
 }
 
+async function extractErrorMessage(res: Response): Promise<string> {
+  const contentType = res.headers.get('content-type') ?? '';
+  const text = (await res.text()).trim();
+
+  if (!text) {
+    return `HTTP ${res.status}`;
+  }
+
+  if (contentType.includes('application/json')) {
+    try {
+      const payload = JSON.parse(text) as Record<string, unknown>;
+      const detail = payload['detail'];
+      if (typeof detail === 'string' && detail.trim()) {
+        return detail;
+      }
+      const message = payload['message'];
+      if (typeof message === 'string' && message.trim()) {
+        return message;
+      }
+    } catch {
+      // Fall back to the raw response text below.
+    }
+  }
+
+  return text;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ChatStreamService {
   streamMessage(message: string, threadId?: string | null): Observable<ChatSseEvent> {
@@ -78,8 +105,7 @@ export class ChatStreamService {
             signal: controller.signal,
           });
           if (!res.ok) {
-            const text = await res.text();
-            throw new Error(text || `HTTP ${res.status}`);
+            throw new Error(await extractErrorMessage(res));
           }
           const reader = res.body?.getReader();
           if (!reader) {

@@ -27,9 +27,13 @@ COPY pyproject.toml uv.lock ./
 COPY main.py config.py logging_config.py middleware.py ./
 COPY agents ./agents
 COPY routers ./routers
+# Hugging Face Spaces run the process as UID 1000; ensure venv and app tree are usable.
+RUN useradd --create-home --uid 1000 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 # --- Runtime: API + built SPA in image (local / single-container deploys) ---
 FROM runtime-api AS runtime-full
-COPY --from=frontend-build /frontend/dist/frontend/browser ./static/browser
+COPY --chown=appuser:appuser --from=frontend-build /frontend/dist/frontend/browser ./static/browser
