@@ -1,9 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   One-time stack: internet-facing HTTP ALB on port 80 forwarding to a target group on port 8000
-  (your FastAPI + Angular container). After deploy: attach the target group to your ECS service
-  (container name "app", port 8000) and add an inbound rule on the ECS task security group —
-  TCP 8000 from the ALB security group (see output AlbSecurityGroupId).
+  (FastAPI + Angular on container "app"). Pass EcsTaskSecurityGroupId to open task port 8000 from
+  the ALB; attach the target group to your ECS service (see repo variable ECS_TARGET_GROUP_ARN).
 
 Parameters:
   VpcId:
@@ -13,6 +12,16 @@ Parameters:
   PublicSubnetIds:
     Type: CommaDelimitedList
     Description: At least two public subnets in different AZs (for the internet-facing ALB).
+
+  EcsTaskSecurityGroupId:
+    Type: String
+    Default: ""
+    Description: >
+      Optional. Security group attached to ECS tasks (same VPC). When set, the stack adds an
+      ingress rule allowing TCP 8000 from this ALB so the target group health checks and traffic work.
+
+Conditions:
+  HasEcsTaskSg: !Not [!Equals [!Ref EcsTaskSecurityGroupId, ""]]
 
 Resources:
   AlbSecurityGroup:
@@ -29,6 +38,17 @@ Resources:
       SecurityGroupEgress:
         - IpProtocol: "-1"
           CidrIp: 0.0.0.0/0
+
+  EcsTaskIngressFromAlb:
+    Type: AWS::EC2::SecurityGroupIngress
+    Condition: HasEcsTaskSg
+    Properties:
+      GroupId: !Ref EcsTaskSecurityGroupId
+      IpProtocol: tcp
+      FromPort: 8000
+      ToPort: 8000
+      SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Description: Allow ALB to reach FastAPI on 8000
 
   TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup

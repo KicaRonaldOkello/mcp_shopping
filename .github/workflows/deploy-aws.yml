@@ -101,6 +101,8 @@ jobs:
           IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
           OPENROUTER_API_KEY_SECRET_ARN: ${{ secrets.OPENROUTER_API_KEY_SECRET_ARN }}
           MCP_SERVER_URL: ${{ vars.MCP_SERVER_URL }}
+          ECS_TARGET_GROUP_ARN: ${{ vars.ECS_TARGET_GROUP_ARN }}
+          ECS_HEALTH_CHECK_GRACE_PERIOD: ${{ vars.ECS_HEALTH_CHECK_GRACE_PERIOD }}
         run: |
           set -euo pipefail
           ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
@@ -124,11 +126,19 @@ jobs:
             mv /tmp/ecs-task.json /tmp/ecs-work.json
           fi
           NEW_ARN="$(aws ecs register-task-definition --cli-input-json file:///tmp/ecs-work.json --query taskDefinition.taskDefinitionArn --output text)"
+          UPDATE_ARGS=()
+          if [ -n "${ECS_TARGET_GROUP_ARN:-}" ]; then
+            UPDATE_ARGS+=(--load-balancers "targetGroupArn=${ECS_TARGET_GROUP_ARN},containerName=app,containerPort=8000")
+          fi
+          if [ -n "${ECS_HEALTH_CHECK_GRACE_PERIOD:-}" ]; then
+            UPDATE_ARGS+=(--health-check-grace-period-seconds "${ECS_HEALTH_CHECK_GRACE_PERIOD}")
+          fi
           aws ecs update-service \
             --cluster "${{ vars.ECS_CLUSTER }}" \
             --service "${{ vars.ECS_SERVICE }}" \
             --task-definition "$NEW_ARN" \
-            --force-new-deployment
+            --force-new-deployment \
+            "${UPDATE_ARGS[@]}"
 
       - name: Deployment summary (frontend URL)
         if: success()
@@ -150,6 +160,10 @@ jobs:
                 echo ""
                 echo "Optional: add repository variable \`PUBLIC_APP_URL\` (e.g. \`http://my-alb.us-east-1.elb.amazonaws.com\`) for a direct link in this summary next time."
               fi
+            fi
+            if [ -n "${{ vars.ECS_TARGET_GROUP_ARN }}" ]; then
+              echo ""
+              echo "ECS is updated with load balancer target group **${{ vars.ECS_TARGET_GROUP_ARN }}** (HTTP 80 → tasks on 8000)."
             fi
             if [ "${FRONTEND_DEPLOY_TARGET}" = "s3" ] || [ "${FRONTEND_DEPLOY_TARGET}" = "both" ]; then
               echo ""
